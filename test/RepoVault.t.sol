@@ -64,8 +64,9 @@ contract RepoVaultTest is Test {
         test_deposits();
         vm.startPrank(UserWallet);
         aUSDCPT.approve(address(pool), 10 ether);
-        uint256 borrowAmount = (9.7 ether * (1_000_000 - 300) * 1 days) / (1_000_000 * 1 days);
-        pool.borrow(10 ether, borrowAmount, 1 days, UserWallet);
+        uint256 loanAmount = (9.7 ether * 990_000) / 1_000_000; //(9.7 ether * (1_000_000 - 300) * 1 days) / (1_000_000 * 1 days);
+        uint256 borrowAmount = loanAmount * (1_000_000 - (300*1)) / 1_000_000;
+        pool.borrow(10 ether, 1 days, UserWallet);
         // user holds borrow amount
         assertEq(usdc.balanceOf(UserWallet), borrowAmount);
         assertEq(usdc.balanceOf(address(pool)), 100 ether - borrowAmount);
@@ -73,9 +74,45 @@ contract RepoVaultTest is Test {
         assertEq(aUSDCPT.balanceOf(UserWallet), 90 ether);
         assertEq(aUSDCPT.balanceOf(address(pool)), 10 ether);
     }
+    function test_borrow_seven_days() public {
+        test_deposits();
+        vm.startPrank(UserWallet);
+        aUSDCPT.approve(address(pool), 10 ether);
+        uint256 loanAmount = (9.7 ether * 990_000) / 1_000_000; //(9.7 ether * (1_000_000 - 300) * 1 days) / (1_000_000 * 1 days);
+        uint256 borrowAmount = loanAmount * (1_000_000 - (300*7)) / 1_000_000;
+        pool.borrow(10 ether, 7 days, UserWallet);
+        // user holds borrow amount
+        assertEq(usdc.balanceOf(UserWallet), borrowAmount);
+        // assertEq(usdc.balanceOf(address(pool)), 100 ether - borrowAmount);
+        // pool holds 10 of collateral
+        assertEq(aUSDCPT.balanceOf(UserWallet), 90 ether);
+        assertEq(aUSDCPT.balanceOf(address(pool)), 10 ether); 
+    }
+    function test_deposit_while_value_outstanding() public {
+        test_deposits();
+        vm.startPrank(UserWallet);
+        aUSDCPT.approve(address(pool), 10 ether);
+        uint256 loanAmount = (9.7 ether * 990_000) / 1_000_000; //(9.7 ether * (1_000_000 - 300) * 1 days) / (1_000_000 * 1 days);
+        uint256 borrowAmount = loanAmount * (1_000_000 - (300*1)) / 1_000_000;
+        pool.borrow(10 ether, 1 days, UserWallet);
+        vm.stopPrank();
+
+        usdc.mint(lp, 100 ether);
+        vm.startPrank(lp);
+        usdc.approve(address(pool), 100 ether);
+        pool.deposit(100 ether, lp);
+        assertEq(usdc.balanceOf(address(pool)), 200 ether-borrowAmount);
+        console.log("balance: ", pool.balanceOf(lp));
+        uint256 newShares = 100 ether * (100 ether) / (100 ether + (loanAmount - borrowAmount));
+        assertEq(pool.balanceOf(lp), 100 ether + newShares);
+        // assertEq(usdc.balanceOf(lp), 0);
+        vm.stopPrank();
+
+    }
     function test_repurchase() public {
-        uint256 fee = (9.7 ether * 300) / 1_000_000;
-        uint256 borrowAmount = 9.7 ether - fee;
+        uint256 loanAmount = (9.7 ether * 990_000) / 1_000_000; //(9.7 ether * (1_000_000 - 300) * 1 days) / (1_000_000 * 1 days);
+        uint256 borrowAmount = loanAmount * (1_000_000 - (300*1)) / 1_000_000;
+        uint256 fee = loanAmount - borrowAmount;
         
         test_borrow();
         vm.startPrank(UserWallet);
