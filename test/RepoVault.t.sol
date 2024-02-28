@@ -11,6 +11,8 @@ import { PtUsdOracle } from "../src/PtUsdOracle.sol";
 import { IPtUsdOracle } from "../src/interfaces/IPtUsdOracle.sol";
 import { MockPtUsdOracle } from "../src/mocks/MockPtUsdOracle.sol";
 import "forge-std/console.sol";
+// forge script --rpc-url https://rpc.buildbear.io/persistent-siryn-0132e20a scripts/01_deployment.s.sol --legacy
+// forge test --fork-url https://rpc.buildbear.io/persistent-siryn-0132e20a -vv   
 contract RepoVaultTest is Test {
     address public OwnerWallet;
     address public UserWallet;
@@ -20,6 +22,9 @@ contract RepoVaultTest is Test {
     MockPrincipalToken public aUSDCPT;
     MockPtUsdOracle public oracle;
     uint256 JUNE242024 = 1719248606;
+
+    address _SY = 0x50288c30c37FA1Ec6167a31E575EA8632645dE20;
+    address _market = 0x8621c587059357d6C669f72dA3Bfe1398fc0D0B5;
     function setUp() public {
         lp = address(69);
         UserWallet = address(420);
@@ -37,7 +42,7 @@ contract RepoVaultTest is Test {
         // console.log(oracle.getPtPrice());
 
 
-        pool = new RepoVault(address(usdc), address(aUSDCPT), address(oracle));
+        pool = new RepoVault(address(usdc), address(aUSDCPT), _SY, _market, address(oracle));
         usdc.mint(lp, 100 ether);
 
 
@@ -107,7 +112,6 @@ contract RepoVaultTest is Test {
         assertEq(pool.balanceOf(lp), 100 ether + newShares);
         // assertEq(usdc.balanceOf(lp), 0);
         vm.stopPrank();
-
     }
     function test_repurchase() public {
         uint256 loanAmount = (9.7 ether * 990_000) / 1_000_000; //(9.7 ether * (1_000_000 - 300) * 1 days) / (1_000_000 * 1 days);
@@ -118,7 +122,7 @@ contract RepoVaultTest is Test {
         vm.startPrank(UserWallet);
         usdc.mint(UserWallet, fee);
         usdc.approve(address(pool), uint256(UINT256_MAX));
-        pool.repurchase();
+        pool.repurchase(1);
         assertEq(usdc.balanceOf(UserWallet), 0);
         assertEq(usdc.balanceOf(address(pool)), 100 ether+fee);
 
@@ -126,8 +130,17 @@ contract RepoVaultTest is Test {
         assertEq(aUSDCPT.balanceOf(address(pool)), 0);
         
     }
+    // function test_go_long() public {
+    //     test_deposits();
+    //     usdc.mint(UserWallet, 100 ether);
+    //     vm.startPrank(UserWallet);
+    //     usdc.approve(address(pool), 100 ether);
+    //     pool.goLong(1 ether, 1 days);
+    //     console.log("balance: ", usdc.balanceOf(UserWallet));
+    // }
 }
 
+//$ forge create --rpc-url <your_rpc_url> --private-key <your_private_key> src/MyContract.sol:MyContract
 
 
 
