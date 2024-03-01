@@ -1,24 +1,30 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 pragma solidity 0.8.20;
-
 import "forge-std/Script.sol";
 import { MockPrincipalToken } from "../src/mocks/MockPrincipalToken.sol";
 import { MockPtUsdOracle } from "../src/mocks/MockPtUsdOracle.sol";
 import { RepoVault } from "../src/RepoVault.sol";
-import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import { ERC20, IERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 import { IPPrincipalToken } from "@pendle/core/contracts/interfaces/IPPrincipalToken.sol";
 import { PtUsdOracle } from "../src/PtUsdOracle.sol";
 import { IPtUsdOracle } from "../src/interfaces/IPtUsdOracle.sol";
 import { MockUSDC } from "../src/mocks/MockUSDC.sol";
+import { RepoVaultBorrowable } from "../src/RepoVaultBorrowable.sol";
+import { FixedYieldCollateralVault } from "../src/FixedYieldCollateralVault.sol";
+import "evc/EthereumVaultConnector.sol";
+import { RepoPlatformOperator } from "../src/RepoPlatformOperator.sol";
 contract Deployment is Script {
     IPPrincipalToken public aUSDCPT;
     PtUsdOracle public oracle;
-    RepoVault public pool;
+    // RepoVault public pool;
+    FixedYieldCollateralVault public collateralVault;
+    RepoVaultBorrowable public pool;
+    RepoPlatformOperator public operator;
     uint256 JUNE242024 = 1719248606;
     uint256 DECIMALS = 10**6;
-
+    IEVC evc;
     address _SY = 0x50288c30c37FA1Ec6167a31E575EA8632645dE20;
     address _PT = 0xb72b988CAF33f3d8A6d816974fE8cAA199E5E86c;
     address _market = 0x8621c587059357d6C669f72dA3Bfe1398fc0D0B5;
@@ -35,14 +41,29 @@ contract Deployment is Script {
         // aUSDCPT = new MockPrincipalToken(address(0), "aUSDC", "aUSDC", 18, JUNE242024);
         // aUSDCPT.mintByYT(deployerWallet, 100 ether);
         aUSDCPT = IPPrincipalToken(_PT);
+        evc = new EthereumVaultConnector();
+        collateralVault = new FixedYieldCollateralVault(evc, ERC20(address(aUSDCPT)));
+
         // oracle = new MockPtUsdOracle();
         oracle = new PtUsdOracle(1 days, _market, address(0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3), address(0x7e16e4253CE4a1C96422a9567B23b4b5Ebc207F1));
 
-        pool = new RepoVault(address(usdc), address(aUSDCPT), _SY, _market, address(oracle));
-
+        // pool = new RepoVault(address(usdc), address(aUSDCPT), _SY, _market, address(oracle));
+        pool = new RepoVaultBorrowable(
+            evc,
+            IERC20(usdc),
+            // address(aUSDCPT),
+            address(collateralVault),
+            // _market,
+            address(oracle)
+            // "REPO PT-aUSDC",
+            // "RepoPTUSDC"
+        );
+        pool.setCollateralFactor(address(collateralVault), 990_000);
+ // "REPO PT-aUSDC",
+            // "RepoPTUSDC"
         console.log(ERC20(usdc).balanceOf(deployerWallet));
-
-        ERC20(usdc).approve(address(pool), 100 * 10 ** 6);
+        operator = new RepoPlatformOperator(evc, address(collateralVault), address(pool));
+        // ERC20(usdc).approve(address(pool), 100 * 10 ** 6);
         //pool.deposit(100 * 10**6, deployerWallet);
 
         vm.stopBroadcast();
@@ -50,6 +71,9 @@ contract Deployment is Script {
         console.log("RepoVault deployed at: ", address(pool));
         console.log("oracle deployed at: ", address(oracle));
         console.log("aUSDCPT deployed at: ", address(aUSDCPT));
+        console.log("collateralVault deployed at: ", address(collateralVault));
+        console.log("evc deployed oconsoat: ", address(evc));
+        console.log("operator deployed at: ", address(operator));
     }
 }
 
@@ -59,4 +83,3 @@ interface IUSDC {
     function configureMinter(address minter, uint256 minterAllowedAmount) external;
     function masterMinter() external view returns (address);
 }
-// forge script --rpc-url https://rpc.buildbear.io/persistent-siryn-0132e20a scripts/01_deployment.s.sol --legacy --broadcast
