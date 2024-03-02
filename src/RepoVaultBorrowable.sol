@@ -166,7 +166,7 @@ contract RepoVaultBorrowable is RepoBaseVault {
 
         // write a repurchase agreement for maxLoan at term against netPtOut
         writeRepoLoan(msgSender, netPtOut, maxLoan, _term);
-        // User must the transactions total minus the total amount they were able to borrow against the collateral 
+        // User must pay the transactions total minus the total amount they were able to borrow against the collateral 
         SafeERC20.safeTransferFrom(IERC20(asset()), msgSender, address(this), ptMarketValue-borrowAmount);
 
         // move collateral into vault on behalf of the user
