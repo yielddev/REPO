@@ -2,7 +2,7 @@
 
 pragma solidity ^0.8.20;
 
-import { VaultBase, IEVC, EVCUtil, EVCClient } from "evc-playground/vaults/VaultBase.sol";
+import { IEVC } from "evc-playground/vaults/VaultBase.sol";
 import { RepoBaseVault } from "./RepoBaseVault.sol";
 import { IStandardizedYield } from "@pendle/core/contracts/interfaces/IStandardizedYield.sol";
 import { IPYieldToken } from "@pendle/core/contracts/interfaces/IPYieldToken.sol";
@@ -14,7 +14,6 @@ import { PendlePtOracleLib } from "@pendle/core/contracts/oracles/PendleLpOracle
 import { IFixedYieldCollateralVault } from "./interfaces/IFixedYieldCollateralVault.sol";
 import { IERC20, ERC20, SafeERC20 } from "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
-import "forge-std/console.sol";
 import { MarketApproxPtOutLib, ApproxParams } from "@pendle/core/contracts/router/base/MarketApproxLib.sol";
 
 error REPO__CollateralExpired();
@@ -31,6 +30,9 @@ error REPO__NotEnoughCollateralPledged();
 error ViolatorStatusCheckDeferred();
 error ControllerDisabled();
 
+/// @title RepoVaultBorrowable 
+/// @notice implements the vault containing borrowable assets for the REPO protocol.
+/// @author yielddev
 contract RepoVaultBorrowable is RepoBaseVault {
     using Math for uint256;
     using MarketApproxPtOutLib for *;
@@ -40,19 +42,20 @@ contract RepoVaultBorrowable is RepoBaseVault {
     mapping(address => mapping(uint256 => Repo)) public repos;
     mapping(address => uint256) public loans;
     mapping(address => uint256) public pledgedCollateral;
-    mapping(address => uint256) public collateralFactor;
+    // mapping(address => uint256) public collateralFactor;
 
     uint256 internal _totalBorrowed;
     uint256 internal _totalPledgedCollateral;
     uint256 private COLLATERAL_FACTOR_SCALE = 1_000_000;
     uint256 private RATE_PERCISION = 1_000_000; // 0.01 of a basis point
     uint256 public LTV = 990_000; // 99% LTV
+    uint256 private MARKET_EPS = 10**15; //0,1%
 
     PtUsdOracle public oracle;
     IPPrincipalToken public collateral;
     IFixedYieldCollateralVault public collateralVault;
-    // IPMarketV3 public market;
-    //uint256 public outstandingValue;
+    address public market;
+
     bytes internal constant EMPTY_BYTES = abi.encode();
 
     event Borrow(address indexed borrower, address indexed receiver, uint256 assets);
@@ -62,37 +65,31 @@ contract RepoVaultBorrowable is RepoBaseVault {
         uint256 repurchasePrice;
         uint256 termExpires;
     }
+
     constructor(
         IEVC _evc,
         IERC20 _asset,
         address _collateralVault,
-        address _oracle
+        address _collateralAsset,
+        address _oracle,
+        address _market
     ) RepoBaseVault(
             _evc,
             _asset,
-            string.concat(ERC20(_collateralVault).name(), " x ", ERC20(address(_asset)).name()),
-            string.concat(ERC20(_collateralVault).symbol(), "x", ERC20(address(_asset)).symbol())
+            "REPO BORROW",
+            "REPOB"
         ) {
         collateralVault = IFixedYieldCollateralVault(_collateralVault);
-        collateral = IPPrincipalToken(address(collateralVault.asset()));
-        // market = IPMarketV3(_market);
+        collateral = IPPrincipalToken(_collateralAsset);
         oracle = PtUsdOracle(_oracle);
+        market = _market;
     }
-    /// @notice Sets the collateral factor of an asset.
-    /// @param _asset The asset.
-    /// @param _collateralFactor The new collateral factor.
-    function setCollateralFactor(address _asset, uint256 _collateralFactor) external onlyOwner {
-        if (_collateralFactor > COLLATERAL_FACTOR_SCALE) {
-            revert InvalidCollateralFactor();
-        }
 
-        collateralFactor[_asset] = _collateralFactor;
-    }
     function getRepoLoan(address account, uint256 loandIndex) external view returns (uint256 collateral, uint256 repurchasePrice, uint256 term) {
         Repo memory repo = repos[account][loandIndex];
         return (repo.collateralAmount, repo.repurchasePrice, repo.termExpires);
     }
-    function borrow(uint256 assets, uint256 term, address receiver) public callThroughEVC nonReentrant {
+    function borrow(uint256 assets, uint256 term, address receiver) external callThroughEVC nonReentrant {
         address msgSender = _msgSenderForBorrow();
 
         createVaultSnapshot();
@@ -103,38 +100,47 @@ contract RepoVaultBorrowable is RepoBaseVault {
         receiver = _getAccountOwner(receiver);
 
         uint256 loanAmount = assets + getTermFeeForAmount(assets, term);
-        console.log("loanAmount: ", loanAmount);
-
         SafeERC20.safeTransfer(IERC20(asset()), receiver, assets);
 
         uint256 collateralValueRequired = loanAmount * RATE_PERCISION / LTV;
         uint256 collateralNominalRequired = collateralValueRequired * 1 ether / (oracle.getPtPrice());
-        // pledgedCollateral[msgSender] += collateralNominalRequired;
         writeRepoLoan(msgSender, collateralNominalRequired, loanAmount, term);
         emit Borrow(msgSender, receiver, loanAmount);
         _totalAssets -= assets;
         requireAccountAndVaultStatusCheck(msgSender);
     }
-    function writeRepoLoan(
-        address debtor,
-        uint256 collateralPledged,
-        uint256 loanAmount,
-        uint256 term
-    ) internal {
-        _increaseOwed(debtor, loanAmount);
-        pledgedCollateral[debtor] += collateralPledged;
-        loans[debtor] += 1;
-        repos[debtor][loans[debtor]] = Repo(collateralPledged, loanAmount, block.timestamp + term);
-        _totalPledgedCollateral += collateralPledged;
+
+    function renewRepoLoan(
+        address _borrower,
+        uint256 _loanIndex,
+        uint256 _partialPayoff,
+        uint256 _newTerm
+    ) external callThroughEVC nonReentrant {
+        address msgSender = _msgSenderForBorrow();
+        createVaultSnapshot();
+        if (collateral.isExpired()) revert REPO__CollateralExpired();
+        if (_newTerm < 1 days) revert REPO__InvalidTerm();
+
+        Repo memory repo = repos[_borrower][_loanIndex];
+        SafeERC20.safeTransferFrom(IERC20(asset()), msgSender, address(this), _partialPayoff);
+        _totalAssets += _partialPayoff; // cancel out utilization before calculating new loan
+        uint256 termFee = getTermFeeForAmount(repo.repurchasePrice-_partialPayoff, _newTerm);
+        uint256 newRepurchasePrice = (repo.repurchasePrice - _partialPayoff) + termFee;
+        // previous loan is paid off
+        loans[_borrower] -= 1;
+        pledgedCollateral[_borrower] -= repo.collateralAmount;
+        _decreaseOwed(_borrower, repo.repurchasePrice);
+        // new loan is written
+        writeRepoLoan(_borrower, repo.collateralAmount, newRepurchasePrice, _newTerm);
+        requireAccountAndVaultStatusCheck(msgSender);
+
     }
 
     function openTradeBaseForPT(
         uint256 _PTAmount,
         uint256 _term,
         uint256 _minPtOut,
-        address receiver,
-        address market,
-        address repoVault
+        address receiver
     ) public callThroughEVC nonReentrant {
         address msgSender = _msgSenderForBorrow();
 
@@ -147,10 +153,10 @@ contract RepoVaultBorrowable is RepoBaseVault {
         receiver = _getAccountOwner(receiver);
 
         uint256 markPrice = oracle.getPtPrice();
-        uint256 ptMarketValue = markPrice * _PTAmount / 1 ether; //oracle.getPtPrice() * _PTAmount / 1 ether;//IPMarketV3(market).getPtToAssetRate(uint32(1 days)) * _PTAmount / 1 ether;
+        uint256 ptMarketValue = markPrice * _PTAmount / 1 ether; 
 
         uint256 netPtOut = swapExactTokenForPt(
-            ptMarketValue, _PTAmount, _minPtOut, market, asset()
+            ptMarketValue, _PTAmount, _minPtOut, asset()
         );
 
         // the maximum loan value for the collateral purchased
@@ -162,8 +168,6 @@ contract RepoVaultBorrowable is RepoBaseVault {
         writeRepoLoan(msgSender, netPtOut, maxLoan, _term);
         // User must the transactions total minus the total amount they were able to borrow against the collateral 
         SafeERC20.safeTransferFrom(IERC20(asset()), msgSender, address(this), ptMarketValue-borrowAmount);
-
-        console.log(IERC20(collateral).balanceOf(address(this)));
 
         // move collateral into vault on behalf of the user
         IERC20(collateral).approve(address(collateralVault), netPtOut);
@@ -180,11 +184,10 @@ contract RepoVaultBorrowable is RepoBaseVault {
     function repurchaseAndSellPt(
         address borrower,
         address receiver,
-        address market,
         uint256 _loanIndex
     ) external callThroughEVC nonReentrant {
         address msgSender = _msgSenderForBorrow();
-        // sanity check: the violator must be under control of the EVC
+
         createVaultSnapshot();
 
         receiver = _getAccountOwner(receiver);
@@ -192,7 +195,7 @@ contract RepoVaultBorrowable is RepoBaseVault {
         liquidateCollateralShares(address(collateralVault), borrower, address(this), repo.collateralAmount);
         forgiveAccountStatusCheck(borrower);
         collateralVault.withdraw(repo.collateralAmount, address(this), address(this));
-        uint256 sale_amount = _sellPtForToken(repo.collateralAmount, address(asset()), market);
+        uint256 sale_amount = _sellPtForToken(repo.collateralAmount, address(asset()));
         if (sale_amount > repo.repurchasePrice) {
             uint256 profit = sale_amount - repo.repurchasePrice;
             if (profit > 0) {
@@ -211,11 +214,11 @@ contract RepoVaultBorrowable is RepoBaseVault {
         }
         requireAccountAndVaultStatusCheck(msgSender);
     }
+
     function swapExactTokenForPt(
         uint256 netTokenIn,
         uint256 _PtAmount,
         uint256 _minPtOut,
-        address market,
         address tokenIn
     ) internal returns (uint256 netPtOut){
         (IStandardizedYield SY, IPPrincipalToken PT, IPYieldToken YT) = IPMarketV3(market).readTokens();
@@ -223,15 +226,14 @@ contract RepoVaultBorrowable is RepoBaseVault {
         IERC20(asset()).approve(address(SY), netTokenIn);
         uint256 netSyOut = SY.deposit(address(this), tokenIn, netTokenIn, 1);
         SY.approve(address(market), netSyOut);
-        (netPtOut, ) = _swapExactSyForPt(address(this), netSyOut, _PtAmount, _minPtOut, market);
-        console.log("swapExactTokenForPt: %s", netPtOut);
+        (netPtOut, ) = _swapExactSyForPt(address(this), netSyOut, _PtAmount, _minPtOut);
     }
+
     function _swapExactSyForPt(
         address receiver,
         uint256 netSyIn,
         uint256 _PtAmount,
-        uint256 _minPtOut,
-        address market
+        uint256 _minPtOut
     ) internal returns (uint256 netPtOut, uint256 netSyFee) {
         (IStandardizedYield SY, IPPrincipalToken PT, IPYieldToken YT) = IPMarketV3(market).readTokens();
         (netPtOut, netSyFee) = IPMarketV3(market).readState(address(this)).approxSwapExactSyForPt(
@@ -243,13 +245,14 @@ contract RepoVaultBorrowable is RepoBaseVault {
                 guessMax: _PtAmount,
                 guessOffchain: 0,
                 maxIteration: 10,
-                eps: 10**15 // within 0.1%
+                eps: MARKET_EPS // 10**15 within 0.1%
             })
         );
         if (netPtOut < _minPtOut) revert REPO__SlippageToHigh();
         SafeERC20.safeTransfer(IERC20(SY), address(market), netSyIn);
         IPMarketV3(market).swapSyForExactPt(address(this), netPtOut, EMPTY_BYTES);
     }
+
     function repurchase(address receiver, uint256 _loanIndex) external callThroughEVC nonReentrant {
         address msgSender = _msgSenderForBorrow();
         if (!isControllerEnabled(receiver, address(this))) {
@@ -266,14 +269,14 @@ contract RepoVaultBorrowable is RepoBaseVault {
         delete repos[receiver][_loanIndex];
         loans[receiver] -= 1;
         emit Repay(msgSender, receiver, repo.repurchasePrice);
-        requireAccountAndVaultStatusCheck(address(0));
+        requireAccountAndVaultStatusCheck(msgSender);
     }
-    function _sellPtForToken(uint256 netPtIn, address tokenOut, address market) internal returns (uint256 netTokenOut) {
+
+    function _sellPtForToken(uint256 netPtIn, address tokenOut) internal returns (uint256 netTokenOut) {
         (IStandardizedYield SY, IPPrincipalToken PT, IPYieldToken YT) = IPMarketV3(market).readTokens();
 
         uint256 netSyOut;
         uint256 fee;
-        console.log(netPtIn);
         if (PT.isExpired()) {
             PT.transfer(address(YT), netPtIn);
             netSyOut = YT.redeemPY(address(SY));
@@ -285,14 +288,12 @@ contract RepoVaultBorrowable is RepoBaseVault {
                 netPtIn,
                 EMPTY_BYTES
             );
-            console.log("netSyOut close position: %s", netSyOut);
-            console.log("close fee: %s", fee);
         }
 
         netTokenOut = SY.redeem(address(this), netSyOut, tokenOut, 1, true); // true burns from the SYcontract balance
 
     }
-    /// ADD EVC TO THIS !!!==
+
     /// =====================
     /// @notice allows collateral from expired repurchase agreements to be liquidated
     /// @param _borrower The address of the borrower for whom the collateral is to be liquidated
@@ -321,7 +322,7 @@ contract RepoVaultBorrowable is RepoBaseVault {
         forgiveAccountStatusCheck(_borrower);
 
         _totalPledgedCollateral -= repo.collateralAmount;
-        _totalAssets += repo.repurchasePrice; // ((proceeds-repo.repurchasePrice) / 2) + repo.repurchasePrice;
+        _totalAssets += repo.repurchasePrice; 
         pledgedCollateral[_borrower] -= repo.collateralAmount;
         _decreaseOwed(_borrower, repo.repurchasePrice);
         loans[_borrower] -= 1;
@@ -330,22 +331,33 @@ contract RepoVaultBorrowable is RepoBaseVault {
         requireAccountAndVaultStatusCheck(msgSender);
     }
     /// @notice returns the current rate for borrowing
-    function getRate() view public returns(uint256) {
-        return 300; // 3 basis points 
+    function getRate(uint256 _amountBorrowed, uint256 totalAssets, uint256 totalBorrowed) view public returns(uint256) {
+        if (totalAssets == 0) return 677; // 6.77 basis points (0.0677%
+        uint256 utilization1 = totalBorrowed * 1 ether / totalAssets+totalBorrowed;
+        uint256 utilization2 = (_amountBorrowed + totalBorrowed) * 1 ether / (totalAssets + totalBorrowed);
+        if (utilization2 < 0.8 ether) {
+            return ( ( (20*utilization1 / 100 ether) + 677 ) + ( (20*utilization2 / 100 ether) + 677 ) )/ 2;
+        } else {
+            uint256 amount_below = ((0.8 ether * (totalAssets + totalBorrowed)) - totalBorrowed) / 1 ether;
+            uint256 amount_above = _amountBorrowed - amount_below;
+            uint256 rate_below = (20*utilization1 / 100 ether) + 677;
+            uint256 rate_above = (200*utilization2 / 100 ether) + 677;
+            return (rate_below * amount_below + rate_above * amount_above) / _amountBorrowed;
+        }
     }
 
     function getTermFeeForAmount(uint256 _amount, uint256 _term) view public returns(uint256) {
-        return _amount * ((getRate()*_term)) / (RATE_PERCISION * 1 days);
+        return _amount * ((getRate(_amount, _totalAssets, _totalBorrowed)*_term)) / (RATE_PERCISION * 1 days);
     }
     function maxLoanValue(uint256 _collateralValue) view public returns(uint256) {
         return _collateralValue * LTV / RATE_PERCISION;
     }
+
     /// @notice returns the maximum amount that can be borrowed for a given amount of collateral 
     function getMaxBorrow(uint256 _collateralValue, uint256 _term) view public returns(uint256) {
-        return maxLoanValue(_collateralValue) * ((1 days * RATE_PERCISION) -  (getRate()*_term)) / (RATE_PERCISION * 1 days);
-        //return _collateralValue - (_collateralValue * getRate() * _term) / (RATE_PERCISION * 1 days);
-
+        return maxLoanValue(_collateralValue) * ((1 days * RATE_PERCISION) -  (getRate(maxLoanValue(_collateralValue), _totalAssets, _totalBorrowed)*_term)) / (RATE_PERCISION * 1 days);
     }
+
     function getTermFee(uint256 _collateralValue, uint256 _term) view public returns(uint256) {
         return maxLoanValue(_collateralValue) - getMaxBorrow(_collateralValue, _term);
     }
@@ -353,6 +365,20 @@ contract RepoVaultBorrowable is RepoBaseVault {
     function doCreateVaultSnapshot() internal virtual override returns (bytes memory) {
         return abi.encode(_totalAssets, _totalBorrowed, _totalPledgedCollateral);
     }   
+
+    function writeRepoLoan(
+        address debtor,
+        uint256 collateralPledged,
+        uint256 loanAmount,
+        uint256 term
+    ) internal {
+        _increaseOwed(debtor, loanAmount);
+        pledgedCollateral[debtor] += collateralPledged;
+        loans[debtor] += 1;
+        repos[debtor][loans[debtor]] = Repo(collateralPledged, loanAmount, block.timestamp + term);
+        _totalPledgedCollateral += collateralPledged;
+    }
+
     function doCheckVaultStatus(bytes memory oldSnapshot) internal virtual override {
         if (oldSnapshot.length == 0) revert SnapshotNotTaken();
 
@@ -360,17 +386,12 @@ contract RepoVaultBorrowable is RepoBaseVault {
         uint256 finalAsset = _totalAssets;
         uint256 finalBorrowed = _totalBorrowed;
         uint256 finalPledged = _totalPledgedCollateral;
-        if (_totalBorrowed > _totalPledgedCollateral) revert REPO__NotEnoughCollateralPledged();
-        // check case where assets where reduced
-        // if (initialAssets > finalAssets) {
-        //    //if(initialAsset - finalAssets == finalBorrowed - initialBorrowed; 
-        // }
-        // new borrowing 
-//        if (finalAssets < initialAssets + finalBorrowed - ) revert REPO__MaxLoanExceeded();
-        // if ()
+        if (_totalBorrowed > _totalPledgedCollateral) revert REPO__NotEnoughCollateralPledged(); // vault must eventually settle to 1
 
-        // SOME INVARIANT CHECK HERE
-//        if (finalBorrowed+(finalBorrowed-initialBorrowed)> initAsset+finalBorrowed) revert REPO__MaxLoanExceeded();
+    }
+    
+    function setEPS(uint256 _eps) external onlyOwner {
+        MARKET_EPS = _eps;
     }
 
     function doCheckAccountStatus(address account, address[] calldata collaterals) internal view virtual override {
@@ -395,7 +416,6 @@ contract RepoVaultBorrowable is RepoBaseVault {
         return _owed[account];
     }
 
-    // TODO: IMPORTANT! HAVE A LOOK
     // ===========================
     /// @notice Converts assets to shares.
     /// @dev That function is manipulable in its current form as it uses exact values. Considering that other vaults may
@@ -474,5 +494,22 @@ contract RepoVaultBorrowable is RepoBaseVault {
         assets = super.redeem(shares, receiver, owner);
         _totalAssets -= assets;
         requireAccountAndVaultStatusCheck(owner);
+    }
+
+    function maxWithdraw(address owner) public view virtual override returns (uint256) {
+        if (_convertToAssets(balanceOf(owner), Math.Rounding.Floor) > totalAssets()) {
+            return totalAssets();
+        } else {
+            return _convertToAssets(balanceOf(owner), Math.Rounding.Floor);
+        }
+    }
+
+    /** @dev See {IERC4626-maxRedeem}. */
+    function maxRedeem(address owner) public view virtual override returns (uint256) {
+        if (_convertToAssets(balanceOf(owner), Math.Rounding.Floor) > totalAssets()) {
+            return _convertToShares(totalAssets(), Math.Rounding.Floor);
+        } else {
+            return balanceOf(owner);
+        }
     }
 }

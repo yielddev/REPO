@@ -7,6 +7,10 @@ import { Ownable, Context } from "@openzeppelin/contracts/access/Ownable.sol";
 import { ERC4626, IERC20, ERC20 } from "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
+/// @title RepoBaseVault
+/// @author Yielddev
+/// @notice Implements the base Vault functionality combining EVC and ERC4626 for use in the REPO protocol.
+/// @notice Mostly lifted from EVC playground simple vault
 contract RepoBaseVault is VaultBase, ERC4626, Ownable {
     using Math for uint256;
     event SupplyCapSet(uint256 newSupplyCap);

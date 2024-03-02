@@ -8,11 +8,15 @@ import { ERC4626, IERC20, ERC20 } from "@openzeppelin/contracts/token/ERC20/exte
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { RepoBaseVault } from "./RepoBaseVault.sol";
 
+/// @title FixedYieldCollateralVault
+/// @author Yielddev
+/// @notice Implements the Fixed Yield Collateral Vault for use in the REPO protocol.
+/// @notice Holds a fixed yield collateral and puts it under the control of the EVC
 contract FixedYieldCollateralVault is RepoBaseVault {
     constructor(
         IEVC _evc,
         IERC20 _asset
-    ) RepoBaseVault(_evc, _asset, string.concat("Repo ", ERC20(address(_asset)).name()), string.concat("REPO-", ERC20(address(_asset)).symbol())){}
+    ) RepoBaseVault(_evc, _asset, string.concat("Repo ", ERC20(address(_asset)).name()), string.concat("Repo ", ERC20(address(_asset)).name())){}
 
     /// @notice Deposits a certain amount of assets for a receiver.
     /// @param assets The assets to deposit.
@@ -73,4 +77,6 @@ contract FixedYieldCollateralVault is RepoBaseVault {
         _totalAssets -= assets;
         requireAccountAndVaultStatusCheck(owner);
     }
+
+
 }

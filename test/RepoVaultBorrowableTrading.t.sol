@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.20;
+pragma solidity 0.8.20;
 
 import {Test, console2} from "forge-std/Test.sol";
 import { ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -58,15 +58,7 @@ contract RepoVaultTest is Test {
         // console.log(oracle.getPtPrice());
         collateralVault = new FixedYieldCollateralVault(evc, ERC20(address(aUSDCPT)));
         pool = new RepoVaultBorrowable(
-            evc,
-            usdc,
-            // address(aUSDCPT),
-            address(collateralVault),
-            // _market,
-            address(oracle)
-            // "REPO PT-aUSDC",
-            // "RepoPTUSDC"
-        );
+            evc, usdc, address(collateralVault), address(aUSDCPT), address(oracle), _market);
         // pool = new RepoVault(address(usdc), address(aUSDCPT), _SY, _market, address(oracle));
         usdc_spoof.mint(lp, 1000 * DECIMALS);
         usdc_spoof.mint(UserWallet, 100 * DECIMALS);
@@ -94,10 +86,7 @@ contract RepoVaultTest is Test {
             100 * 10**6, // pt amount
             1 days, // term 
             99 * 10 ** 6, // min pt out
-            UserWallet,
-            _market,
-            address(pool)
-
+            UserWallet
         );
         vm.stopPrank();
         console.log("balance: ", usdc.balanceOf(UserWallet));
@@ -115,17 +104,25 @@ contract RepoVaultTest is Test {
         pool.liquidate(UserWallet, 1);
         console.log("balance: ", usdc.balanceOf(address(pool)));
     }
-    // function test_extend_a_long_financing_term() public {
-    //     test_go_long();
-    //     vm.startPrank(UserWallet);
-    //     pool.rolloverLoan(1, 5000000, 1 days);
-    //     vm.stopPrank();
-    // }
+    function test_extend_a_long_financing_term() public {
+        test_go_long();
+        vm.startPrank(UserWallet);
+        //pool.rolloverLoan(1, 5000000, 1 days);
+
+        // Already Approved usdc 
+        pool.renewRepoLoan(
+            UserWallet,
+            1,
+            300000,
+            2 days
+        );
+        vm.stopPrank();
+    }
     function test_close_long() public {
         uint256 usd_balance = usdc.balanceOf(address(pool));
         test_go_long();
         vm.startPrank(UserWallet);
-        pool.repurchaseAndSellPt(UserWallet, UserWallet, _market, 1);
+        pool.repurchaseAndSellPt(UserWallet, UserWallet, 1);
         uint256 usd_balance_after = usdc.balanceOf(address(pool));
         console.log("net balance change: ", usd_balance_after - usd_balance);
         // vm.stopPrank();

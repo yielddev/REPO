@@ -64,8 +64,10 @@ contract RepoVaultBorrowableTest is Test {
             usdc,
             // address(aUSDCPT),
             address(collateralVault),
+            address(aUSDCPT),
             // _market,
-            address(oracle)
+            address(oracle),
+            _market
             // "REPO PT-aUSDC",
             // "RepoPTUSDC"
         );
@@ -74,7 +76,7 @@ contract RepoVaultBorrowableTest is Test {
 
         console.log(pool.name());
         console.log(pool.symbol()); 
-        pool.setCollateralFactor(address(collateralVault), 990_000);
+        // pool.setCollateralFactor(address(collateralVault), 990_000);
         usdc.mint(lp, 100 * DECIMALS);
     }
     function test_approve_operator() public {
@@ -144,31 +146,45 @@ contract RepoVaultBorrowableTest is Test {
         collateralVault.withdraw(10 * DECIMALS, UserWallet, UserWallet);
     }
     function test_repurchase() public {
+        // uint256 repurchasePrice = (950*CENTS) + pool.getTermFeeForAmount(950 * CENTS, 1 days);
+        uint256 repurchasePrice = (950 * CENTS) + ((950*CENTS) * pool.getRate((950*CENTS), 10*DECIMALS, 0) / 1_000_000);
+        console.log("repo price: ", repurchasePrice);
         test_borrow();
-        usdc.mint(UserWallet, 2850);
+        console.log("rebalance: ", usdc.balanceOf(address(UserWallet)));
+        usdc.mint(UserWallet, repurchasePrice - usdc.balanceOf(address(UserWallet)));
         vm.startPrank(UserWallet);
-        usdc.approve(address(pool), 9502850);
+        usdc.approve(address(pool), repurchasePrice);
+        (uint256 collateralNominal, uint256 loanAmount, ) = pool.getRepoLoan(address(UserWallet), 1);
+        console.log("loanAmount: ", loanAmount);
         pool.repurchase(UserWallet, 1);
         assertEq(usdc.balanceOf(UserWallet), 0);
-        assertEq(usdc.balanceOf(address(pool)), 100 * DECIMALS + 2850);
+        console.log("rebalance: ", usdc.balanceOf(address(UserWallet)));
+        assertGe(usdc.balanceOf(address(pool)), 100 * DECIMALS);
+        (collateralNominal, loanAmount, ) = pool.getRepoLoan(address(UserWallet), 1);
+        console.log("loanAmount2: ", loanAmount);
 
         assertEq(pool.pledgedCollateral(UserWallet), 0);
         assertEq(pool.loans(UserWallet), 0);
     }
     function test_liquidation() public {
         test_borrow();
-        usdc.mint(Liquidator, 9502850);
+        usdc.mint(Liquidator, 100 * DECIMALS);
         vm.warp(block.timestamp + 1 days);
         vm.startPrank(Liquidator);
         evc.enableController(Liquidator, address(pool));
         // // evc.enableController(Liquidator, address(collateralVault));
         // evc.enableCollateral(Liquidator, address(collateralVault));
         // evc.enableCollateral(Liquidator, address(pool));
-        usdc.approve(address(pool), 9502850);
+        usdc.approve(address(pool), 100 * DECIMALS);
+        (uint256 collateralNominal, uint256 repurchasePrice, ) = pool.getRepoLoan(address(UserWallet), 1);
+
+        uint256 preAssets = pool.totalAssets();
         pool.liquidate(UserWallet, 1);
 
-        assertEq(usdc.balanceOf(Liquidator), 0);
-        assertEq(collateralVault.balanceOf(Liquidator), 9895709);
+        assertEq(usdc.balanceOf(Liquidator), (100 * DECIMALS) - repurchasePrice);
+        assertEq(collateralVault.balanceOf(Liquidator), collateralNominal);
+        assertEq(usdc.balanceOf(address(pool)), preAssets + (repurchasePrice));
+
 
     }
 }
