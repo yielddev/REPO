@@ -7,7 +7,6 @@ import { MockUSDC } from "../src/mocks/MockUSDC.sol";
 import { RepoVault } from "../src/RepoVault.sol";
 import { RepoVaultBorrowable } from "../src/RepoVaultBorrowable.sol";
 import { FixedYieldCollateralVault } from "../src/FixedYieldCollateralVault.sol";
-import { PtCollateralVault } from "../src/PtCollateralVault.sol";
 import { IPPrincipalToken } from "@pendle/core/contracts/interfaces/IPPrincipalToken.sol";
 import { MockPrincipalToken } from "../src/mocks/MockPrincipalToken.sol";
 import { PtUsdOracle } from "../src/PtUsdOracle.sol";
@@ -86,9 +85,11 @@ contract RepoVaultTestWSTETH is Test {
         mintWSTETH(UserWallet, 100 ether);
         test_deposit();
         vm.startPrank(UserWallet);
+        
         evc.enableController(UserWallet, address(pool));
         evc.enableCollateral(UserWallet, address(collateralVault));
         evc.enableCollateral(UserWallet, address(pool));
+
         wsteth.approve(address(pool), 1 ether);
         uint256 preBalance = wsteth.balanceOf(UserWallet);
         pool.openTradeBaseForPT(
@@ -98,10 +99,9 @@ contract RepoVaultTestWSTETH is Test {
             UserWallet
         );
         vm.stopPrank();
+
         (uint256 exposure, uint256 loan, ) = pool.getRepoLoan(UserWallet, 1);
         console.log("exposure: ", exposure);
-        console.log("loan: ", loan);
-        console.log("userInitial: ", preBalance - wsteth.balanceOf(UserWallet));    
         uint256 totalCost = (preBalance - wsteth.balanceOf(UserWallet)) + loan;
         console.log("totalCost: ", totalCost); // totalSteth cost of position 
         uint256 pricePaid = totalCost* 1 ether / exposure;

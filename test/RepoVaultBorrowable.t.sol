@@ -7,7 +7,6 @@ import { MockUSDC } from "../src/mocks/MockUSDC.sol";
 import { RepoVault } from "../src/RepoVault.sol";
 import { RepoVaultBorrowable } from "../src/RepoVaultBorrowable.sol";
 import { FixedYieldCollateralVault } from "../src/FixedYieldCollateralVault.sol";
-import { PtCollateralVault } from "../src/PtCollateralVault.sol";
 import { IPPrincipalToken } from "@pendle/core/contracts/interfaces/IPPrincipalToken.sol";
 import { MockPrincipalToken } from "../src/mocks/MockPrincipalToken.sol";
 import { PtUsdOracle } from "../src/PtUsdOracle.sol";
@@ -50,11 +49,6 @@ contract RepoVaultBorrowableTest is Test {
 
         //setup oracle
         oracle = new MockPtUsdOracle();
-        // Functional Oracle
-        // new MockPtUsdOracle(1 days, address(0x8621c587059357d6C669f72dA3Bfe1398fc0D0B5), address(0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3), address(0x7e16e4253CE4a1C96422a9567B23b4b5Ebc207F1));
-        
-        // console.log(oracle.getPtPrice());
-
 
         collateralVault = new FixedYieldCollateralVault(evc, ERC20(aUSDCPT));
 
@@ -62,21 +56,18 @@ contract RepoVaultBorrowableTest is Test {
         pool = new RepoVaultBorrowable(
             evc,
             usdc,
-            // address(aUSDCPT),
             address(collateralVault),
             address(aUSDCPT),
             // _market,
             address(oracle),
             _market
-            // "REPO PT-aUSDC",
-            // "RepoPTUSDC"
+  
         );
 
         operator = new RepoPlatformOperator(evc, address(collateralVault), address(pool));
 
         console.log(pool.name());
         console.log(pool.symbol()); 
-        // pool.setCollateralFactor(address(collateralVault), 990_000);
         usdc.mint(lp, 100 * DECIMALS);
     }
     function test_approve_operator() public {
@@ -130,16 +121,15 @@ contract RepoVaultBorrowableTest is Test {
         assertEq(usdc.balanceOf(UserWallet), 950 * CENTS);
         assertEq(usdc.balanceOf(address(pool)), 100 * DECIMALS - (950 * CENTS));
         // pool holds 10 of collateral
-//        assertEq(aUSDCPT.balanceOf(UserWallet), 90 * DECIMALS);
-//        assertEq(aUSDCPT.balanceOf(address(pool)), 10 * DECIMALS);
+
 
         uint256 loanAmount = (950 *CENTS) + pool.getTermFeeForAmount(950 * CENTS, 1 days);
         uint256 collateralValueRequired = (loanAmount) * 1_000_000 / 990_000;
-        console.log(collateralValueRequired);
+        // console.log(collateralValueRequired);
         uint256 collateralAmount = collateralValueRequired * 1 ether / (.97 ether);
-        console.log(collateralAmount);
+        // console.log(collateralAmount);
         (uint256 collateralNominal, , ) = pool.getRepoLoan(address(UserWallet), 1);
-        console.log("collateralAmount", collateralNominal);
+        // console.log("collateralAmount", collateralNominal);
 
         // user tries to withdraw all PT from collateral Vault expect a MaxLoanExceeded Revert
         vm.expectRevert(abi.encodeWithSelector(REPO__MaxLoanExceeded.selector));
@@ -172,9 +162,7 @@ contract RepoVaultBorrowableTest is Test {
         vm.warp(block.timestamp + 1 days);
         vm.startPrank(Liquidator);
         evc.enableController(Liquidator, address(pool));
-        // // evc.enableController(Liquidator, address(collateralVault));
-        // evc.enableCollateral(Liquidator, address(collateralVault));
-        // evc.enableCollateral(Liquidator, address(pool));
+
         usdc.approve(address(pool), 100 * DECIMALS);
         (uint256 collateralNominal, uint256 repurchasePrice, ) = pool.getRepoLoan(address(UserWallet), 1);
 

@@ -44,18 +44,10 @@ contract RepoVaultTest is Test {
         // allow this test contract to mint USDC
         usdc_spoof.configureMinter(address(this), type(uint256).max);
         
-        // mint $1000 USDC to the test contract (or an external user)
-//        usdc_spoof.mint(address(this), 1000);
-
-        //vm.warp(JUNE242024 - 90 days);
         aUSDCPT = IPPrincipalToken(_PT);
         //setup oracle
         oracle = new PtUsdOracle(0.1 hours, _market, address(0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3), address(0x7e16e4253CE4a1C96422a9567B23b4b5Ebc207F1));
 
-        // Functional Oracle
-        // new MockPtUsdOracle(1 days, address(0x8621c587059357d6C669f72dA3Bfe1398fc0D0B5), address(0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3), address(0x7e16e4253CE4a1C96422a9567B23b4b5Ebc207F1));
-        
-        // console.log(oracle.getPtPrice());
         collateralVault = new FixedYieldCollateralVault(evc, ERC20(address(aUSDCPT)));
         pool = new RepoVaultBorrowable(
             evc, usdc, address(collateralVault), address(aUSDCPT), address(oracle), _market);
@@ -69,9 +61,9 @@ contract RepoVaultTest is Test {
         vm.startPrank(lp);
         usdc.approve(address(pool), 100 * DECIMALS);
         pool.deposit(100 * DECIMALS, lp);
-        // assertEq(pool.balanceOf(lp), 100 ether);
-        // assertEq(usdc.balanceOf(lp), 0);
-        // assertEq(usdc.balanceOf(address(pool)), 100 ether);
+        assertEq(pool.balanceOf(lp), 100 * DECIMALS);
+        assertEq(usdc.balanceOf(lp), 900*DECIMALS);
+        assertEq(usdc.balanceOf(address(pool)), 100 *DECIMALS);
         vm.stopPrank();
     }
     function test_go_long() public {
@@ -107,7 +99,6 @@ contract RepoVaultTest is Test {
     function test_extend_a_long_financing_term() public {
         test_go_long();
         vm.startPrank(UserWallet);
-        //pool.rolloverLoan(1, 5000000, 1 days);
 
         // Already Approved usdc 
         pool.renewRepoLoan(
@@ -125,8 +116,7 @@ contract RepoVaultTest is Test {
         pool.repurchaseAndSellPt(UserWallet, UserWallet, 1);
         uint256 usd_balance_after = usdc.balanceOf(address(pool));
         console.log("net balance change: ", usd_balance_after - usd_balance);
-        // vm.stopPrank();
-        // assertEq(aUSDCPT.balanceOf(UserWallet), 0);
+        assertEq(aUSDCPT.balanceOf(UserWallet), 0);
     }
 }
 interface IUSDC {

@@ -48,10 +48,7 @@ contract RepoVaultTest is Test {
         //setup oracle
         oracle = new PtUsdOracle(0.1 hours, _market, address(0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3), address(0x7e16e4253CE4a1C96422a9567B23b4b5Ebc207F1));
 
-        // Functional Oracle
-        // new MockPtUsdOracle(1 days, address(0x8621c587059357d6C669f72dA3Bfe1398fc0D0B5), address(0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3), address(0x7e16e4253CE4a1C96422a9567B23b4b5Ebc207F1));
-        
-        // console.log(oracle.getPtPrice());
+
 
 
         pool = new RepoVault(address(usdc), address(aUSDCPT), _SY, _market, address(oracle));
@@ -64,9 +61,7 @@ contract RepoVaultTest is Test {
         vm.startPrank(lp);
         usdc.approve(address(pool), 100 * DECIMALS);
         pool.deposit(100 * DECIMALS, lp);
-        // assertEq(pool.balanceOf(lp), 100 ether);
-        // assertEq(usdc.balanceOf(lp), 0);
-        // assertEq(usdc.balanceOf(address(pool)), 100 ether);
+
         vm.stopPrank();
     }
     function test_go_long() public {

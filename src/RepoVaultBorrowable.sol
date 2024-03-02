@@ -299,7 +299,7 @@ contract RepoVaultBorrowable is RepoBaseVault {
     /// @param _borrower The address of the borrower for whom the collateral is to be liquidated
     function liquidate(address _borrower, uint256 _loanIndex) external callThroughEVC nonReentrant{
         address msgSender = _msgSenderForBorrow();
-        if (collateral.isExpired()) revert REPO__CollateralExpired();
+        // if (collateral.isExpired()) revert REPO__CollateralExpired();
         Repo memory repo = repos[_borrower][_loanIndex];
         if (repo.termExpires > block.timestamp) revert REPO__LoanTermNotExpired();
         // due to later violator's account check forgiveness,
