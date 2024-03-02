@@ -7,6 +7,8 @@ remappings = [
     "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
     "@pendle/core/contracts/=lib/pendle-core-v2-public/contracts/",
     "@chainlink/contracts/=lib/chainlink-brownie-contracts/contracts/",
-    '@solady/contracts/=lib/solady/src/',
+    "@solady/contracts/=lib/solady/src/",
+    "evc/=lib/ethereum-vault-connector/src/",
+    "evc-playground/=lib/evc-playground/src/"
 ]
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

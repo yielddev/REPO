@@ -1,0 +1,6 @@
+  oracle deployed at:  0x56FA06B9Fd91845Ca48f49c6cB05a966a509CbBE
+  aUSDCPT deployed at:  0xb72b988CAF33f3d8A6d816974fE8cAA199E5E86c
+  collateralVault deployed at:  0xE07EfD64a9de62d4eEa5B372876EBfC3d2D78D2e
+  evc deployed oconsoat:  0xb18F31145F2865a943957D22b9Da1c93C80aDa47
+  RepoVault deployed at:  0x67878578463A985398059f32F73d98462f25aC23
+  operator deployed at:  0x6C7c749E83676Af6EAF1E60FE384C2225fdf9Bd4

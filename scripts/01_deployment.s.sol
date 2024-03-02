@@ -27,7 +27,7 @@ contract Deployment is Script {
         //uint256 deployerPrivateKey = vm.deriveKey(vm.envString("MNEMONIC"), 0);
         address deployerWallet = address(0x5A43FbDF36FF1C484488b7BfF1bbdeDc845E97a9);
         address usdc = address(0xaf88d065e77c8cC2239327C5EDb3A432268e5831);
-        vm.startBroadcast(0x754b28153d34d9d9f6158517f4a3755189fe55f33ca81b1722f573d6488a2847);
+        vm.startBroadcast(0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80);
         IUSDC usdc_spoof = IUSDC(address(usdc));
         // usdc_spoof.configureMinter(address(this), type(uint256).max);
         // usdc_spoof.mint(deployerWallet, 1000 * DECIMALS);
@@ -36,7 +36,7 @@ contract Deployment is Script {
         // aUSDCPT.mintByYT(deployerWallet, 100 ether);
         aUSDCPT = IPPrincipalToken(_PT);
         // oracle = new MockPtUsdOracle();
-        oracle = new PtUsdOracle(0.1 hours, _market, address(0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3), address(0x7e16e4253CE4a1C96422a9567B23b4b5Ebc207F1));
+        oracle = new PtUsdOracle(1 days, _market, address(0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3), address(0x7e16e4253CE4a1C96422a9567B23b4b5Ebc207F1));
 
         pool = new RepoVault(address(usdc), address(aUSDCPT), _SY, _market, address(oracle));
 

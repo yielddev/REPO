@@ -30,6 +30,7 @@ error REPO__LoanTermNotExpired();
 /// @title RepoVault
 /// @author yielddev
 /// @notice This implements a ERC4626 vault that allows for repo loans with PT as collateral
+/// @notice The Deprecated REPO Vault Implementation
 contract RepoVault is ERC4626, IERC3156FlashLender {
     using SafeTransferLib for IERC20;
     using Math for uint256;
@@ -73,7 +74,7 @@ contract RepoVault is ERC4626, IERC3156FlashLender {
 
     /// @inheritdoc IERC3156FlashLender
     function maxFlashLoan(address token) public view override returns (uint256) {
-        if (token != address(asset()) && token != address(collateral)) revert REPO__WrongToken();
+        if (token != address(asset())) revert REPO__WrongToken();
         return IERC20(token).balanceOf(address(this));
     }
 
